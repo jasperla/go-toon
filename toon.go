@@ -3,14 +3,20 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/user"
+	"path"
 	"strconv"
+
+	"github.com/davecgh/go-spew/spew"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -92,6 +98,7 @@ type ToonState struct {
 }
 
 func main() {
+	config := flag.String("config", "", "Configuration file")
 	username := flag.String("username", "", "Username")
 	password := flag.String("password", "", "Password")
 	getTemp := flag.Bool("temp", false, "Get current temperature in Celcius")
@@ -100,6 +107,40 @@ func main() {
 	setTemp := flag.Float64("set", 0.0, "Set temperature")
 
 	flag.Parse()
+
+	configfile := ""
+
+	// If no configfile and no credentials are passed, use the default config
+	// location.
+	if *config == "" && (*username == "" || *password == "") {
+		// check if the file exists
+		usr, err := user.Current()
+		if err != nil {
+			log.Fatalln("Could not get current user information", err)
+		}
+
+		default_config := path.Join(usr.HomeDir, ".go-toon.conf")
+		if err := CanReadFile(default_config, "default configuration"); err != nil {
+			log.Fatalln(err)
+		}
+
+		configfile = default_config
+	} else if *config != "" {
+		// If a configfile was passed, use it.
+		configfile = *config
+	}
+
+	// Use a config file if we got it.
+	if configfile != "" {
+		fileinfo, _ := os.Stat(configfile)
+		if fileinfo.Mode().Perm().String() != "-rw-------" {
+			log.Fatalln("Default config", configfile, "world-readable")
+		}
+
+		c := ReadConfig(configfile)
+		*username = c["username"].(string)
+		*password = c["password"].(string)
+	}
 
 	if *username == "" || *password == "" {
 		log.Fatalln("Username and password required")
@@ -300,4 +341,34 @@ func genUUID() (string, error) {
 	// version 4 (pseudo-random); see section 4.1.3
 	uuid[6] = uuid[6]&^0xf0 | 0x40
 	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:]), nil
+}
+
+// Check if we can read the given 'path' denoting a 'what'
+func CanReadFile(path string, what string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			err := fmt.Sprintf("%s %s does not exist", what, path)
+			return errors.New(err)
+		} else {
+			err := fmt.Sprintf("Could not open %s for reading: %s", path, err)
+			return errors.New(err)
+		}
+	}
+
+	return nil
+}
+
+func ReadConfig(file string) map[interface{}]interface{} {
+	data, err := ioutil.ReadFile(file)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	m := make(map[interface{}]interface{})
+	err = yaml.Unmarshal([]byte(data), &m)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return m
 }

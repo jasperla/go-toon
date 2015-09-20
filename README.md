@@ -14,7 +14,6 @@ Thanks to [rvdm/toon](https://github.com/rvdm/toon) for having figured out the "
 - add support for additional features:
 	- retrieve power usage
 	- retrieve current program state
-- configuration file with credentials
 
 ## Copyright
 
